@@ -1,3 +1,4 @@
+require('dotenv').config();
 const cors = require("cors");
 const path = require("path");
 const bcrypt = require("bcrypt");
@@ -116,39 +117,65 @@ server.post("/signin", async (req, res) => {
   const { email, password } = req.body;
 
   const user = await userModel.findOne({ email });
-  if (!user) return res.status(500).send("Invalid Credentials");
+  if (!user) return res.status(401).json({ message: "Invalid Credentials" });
 
   const isValidPassword = await bcrypt.compare(password, user.password);
-  if (!isValidPassword) return res.status(500).send("Invalid Credentials");
+  if (!isValidPassword) return res.status(401).json({ message: "Invalid Credentials" });
 
-  const token = jwt.sign({ email, userId: user._id }, "secretKey");
-  res.cookie("token", token);
-  res.redirect("/profile");
-  //   res.status(200).send("you can login");
+  const secretKey = process.env.NODE_JWT_SECRET_KEY
+  const token = jwt.sign({ email, userId: user._id }, secretKey);
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+    // maxAge: 1000,
+  })
+  res.status(200).json({ message: "Login successful" });
 });
 
 server.post("/signup", async (req, res) => {
-  console.log(req.body);
-  const { username, name, email, age, password } = req.body;
-  const user = await userModel.findOne({ email });
+  try {
+    const { username, name, email, age, password } = req.body;
+    const user = await userModel.findOne({ email });
 
-  if (user) return res.status(500).send("User already registered");
+    if (user) {
+      const err = new Error('User already registered!')
+      err.status = 409
+      throw err
+    }
 
-  bcrypt.genSalt(12, (err, salt) => {
-    bcrypt.hash(password, salt, async (err, hash) => {
-      const createdUser = await userModel.create({
-        username,
-        name,
-        email,
-        age,
-        password: hash,
+    bcrypt.genSalt(12, (err, salt) => {
+      bcrypt.hash(password, salt, async (err, hash) => {
+        const createdUser = await userModel.create({
+          username,
+          name,
+          email,
+          age,
+          password: hash,
+        });
+        const secretKey = process.env.NODE_JWT_SECRET_KEY
+        const token = jwt.sign({ email, userId: createdUser._id }, secretKey);
+        return res.status(201).json({ message: "Account created successfully!" });
       });
-
-      const token = jwt.sign({ email, userId: createdUser._id }, "secretKey");
-      return res.status(201).json({ message: "Signup successful", token });
     });
-  });
+  } catch (error) {
+    return res.status(error.status).json({ message: error.message })
+  }
 });
+
+server.get('/auth/check', async (req, res) => {
+  const token = req.cookies.token
+  if (!token)
+    return res.status(401).json({ message: "Unauthorized!" })
+
+  try {
+    const secretKey = process.env.NODE_JWT_SECRET_KEY
+    const data = jwt.verify(token, secretKey)
+    return res.status(200).json({data})
+
+  } catch (error) { }
+})
 
 server.get("/logout", (req, res) => {
   res.cookie("token", "");
@@ -159,7 +186,7 @@ server.get("/logout", (req, res) => {
 function isLoggedIn(req, res, next) {
   if (!req.cookies.token) res.redirect("/signin");
   else {
-    const data = jwt.verify(req.cookies.token, "secretKey");
+    const data = jwt.verify(req.cookies.token, process.env.NODE_JWT_SECRET_KEY);
     req.user = data;
     next();
   }
