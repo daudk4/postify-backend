@@ -117,16 +117,18 @@ server.post("/edit/:postId", isLoggedIn, async (req, res) => {
 });
 
 server.post("/post", isLoggedIn, async (req, res) => {
-  const { email, userId } = req.user;
-  const { content } = req.body;
-  const user = await userModel.findOne({ _id: userId });
-  const post = await postModel.create({
-    user: user._id,
-    content,
-  });
+  try {
+    const { email, userId } = req.user;
+    const { content } = req.body;
+    const user = await userModel.findOne({ _id: userId });
+    const post = await postModel.create({
+      user: user._id,
+      content,
+    });
 
-  await user.updateOne({ $push: { posts: post } });
-  res.redirect("/profile");
+    await user.updateOne({ $push: { posts: post } });
+    return res.status(200).json({ message: "Post created successfully!" });
+  } catch (error) {}
 });
 
 server.post("/signup", async (req, res) => {
